@@ -15,11 +15,15 @@
 #include <errno.h>
 #include <utime.h>
 #include "unity.h"
+#include "esp_log.h"
+#include "esp_system.h"
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "ff.h"
 #include "test_fatfs_common.h"
+#include "esp_rom_sys.h"
 
 const char* fatfs_test_hello_str = "Hello, World!\n";
 const char* fatfs_test_hello_str_utf = "世界，你好！\n";
@@ -30,30 +34,6 @@ void test_fatfs_create_file_with_text(const char* name, const char* text)
     TEST_ASSERT_NOT_NULL(f);
     TEST_ASSERT_TRUE(fputs(text, f) != EOF);
     TEST_ASSERT_EQUAL(0, fclose(f));
-}
-
-void test_fatfs_create_file_with_o_creat_flag(const char* filename)
-{
-    const int fd = open(filename, O_CREAT|O_WRONLY);
-    TEST_ASSERT_NOT_EQUAL(-1, fd);
-
-    const int r = pwrite(fd, fatfs_test_hello_str, strlen(fatfs_test_hello_str), 0); //offset=0
-    TEST_ASSERT_EQUAL(strlen(fatfs_test_hello_str), r);
-
-    TEST_ASSERT_EQUAL(0, close(fd));
-}
-
-void test_fatfs_open_file_with_o_creat_flag(const char* filename)
-{
-    char buf[32] = { 0 };
-    const int fd = open(filename, O_CREAT|O_RDONLY);
-    TEST_ASSERT_NOT_EQUAL(-1, fd);
-
-    int r = pread(fd, buf, sizeof(buf), 0); // it is a regular read() with offset==0
-    TEST_ASSERT_EQUAL(0, strcmp(fatfs_test_hello_str, buf));
-    TEST_ASSERT_EQUAL(strlen(fatfs_test_hello_str), r);
-
-    TEST_ASSERT_EQUAL(0, close(fd));
 }
 
 void test_fatfs_overwrite_append(const char* filename)
@@ -423,7 +403,7 @@ void test_fatfs_stat(const char* filename, const char* root_dir)
     struct tm mtm;
     localtime_r(&mtime, &mtm);
     printf("File time: %s", asctime(&mtm));
-    TEST_ASSERT(llabs(mtime - t) < 2);    // fatfs library stores time with 2 second precision
+    TEST_ASSERT(abs(mtime - t) < 2);    // fatfs library stores time with 2 second precision
 
     TEST_ASSERT(st.st_mode & S_IFREG);
     TEST_ASSERT_FALSE(st.st_mode & S_IFDIR);
@@ -800,9 +780,9 @@ typedef struct {
     const char* filename;
     bool write;
     size_t word_count;
-    unsigned seed;
+    int seed;
     SemaphoreHandle_t done;
-    esp_err_t result;
+    int result;
 } read_write_test_arg_t;
 
 #define READ_WRITE_TEST_ARG_INIT(name, seed_) \
@@ -825,19 +805,19 @@ static void read_write_task(void* param)
 
     srand(args->seed);
     for (size_t i = 0; i < args->word_count; ++i) {
-        unsigned val = rand();
+        uint32_t val = rand();
         if (args->write) {
             int cnt = fwrite(&val, sizeof(val), 1, f);
             if (cnt != 1) {
-                printf("E(w): i=%d, cnt=%d val=0x08%x\n", i, cnt, val);
+                esp_rom_printf("E(w): i=%d, cnt=%d val=%d\n\n", i, cnt, val);
                 args->result = ESP_FAIL;
                 goto close;
             }
         } else {
-            unsigned rval;
+            uint32_t rval;
             int cnt = fread(&rval, sizeof(rval), 1, f);
             if (cnt != 1 || rval != val) {
-                printf("E(r): i=%d, cnt=%d rval=0x08%x val=0x08%x\n", i, cnt, rval, val);
+                esp_rom_printf("E(r): i=%d, cnt=%d rval=%d val=%d\n\n", i, cnt, rval, val);
                 args->result = ESP_FAIL;
                 goto close;
             }
@@ -911,15 +891,6 @@ void test_fatfs_concurrent(const char* filename_prefix)
     vSemaphoreDelete(args4.done);
 }
 
-void test_leading_spaces(void){
-    // fatfs should ignore leading and trailing whitespaces
-    // and files "/spiflash/        thelongfile.txt    " and "/spiflash/thelongfile.txt" should be equivalent
-    // this feature is currently not implemented
-    FILE* f = fopen( "/spiflash/        thelongfile.txt    ", "wb");
-    fclose(f);
-    TEST_ASSERT_NULL(fopen("/spiflash/thelongfile.txt", "r"));
-}
-
 void test_fatfs_rw_speed(const char* filename, void* buf, size_t buf_size, size_t file_size, bool is_write)
 {
     const size_t buf_count = file_size / buf_size;
@@ -949,31 +920,4 @@ void test_fatfs_rw_speed(const char* filename, void* buf, size_t buf_size, size_
     printf("%s %d bytes (block size %d) in %.3fms (%.3f MB/s)\n",
             (is_write)?"Wrote":"Read", file_size, buf_size, t_s * 1e3,
                     file_size / (1024.0f * 1024.0f * t_s));
-}
-
-void test_fatfs_info(const char* base_path, const char* filepath)
-{
-    // Empty FS
-    uint64_t total_bytes = 0;
-    uint64_t free_bytes = 0;
-    TEST_ASSERT_EQUAL(ESP_OK, esp_vfs_fat_info(base_path, &total_bytes, &free_bytes));
-    ESP_LOGD("fatfs info", "total_bytes=%llu, free_bytes=%llu", total_bytes, free_bytes);
-    TEST_ASSERT_NOT_EQUAL(0, total_bytes);
-
-    // FS with a file
-    FILE* f = fopen(filepath, "wb");
-    TEST_ASSERT_NOT_NULL(f);
-    TEST_ASSERT_TRUE(fputs(fatfs_test_hello_str, f) != EOF);
-    TEST_ASSERT_EQUAL(0, fclose(f));
-
-    uint64_t free_bytes_new = 0;
-    TEST_ASSERT_EQUAL(ESP_OK, esp_vfs_fat_info(base_path, &total_bytes, &free_bytes_new));
-    ESP_LOGD("fatfs info", "total_bytes=%llu, free_bytes_new=%llu", total_bytes, free_bytes_new);
-    TEST_ASSERT_NOT_EQUAL(free_bytes, free_bytes_new);
-
-    // File removed
-    TEST_ASSERT_EQUAL(0, remove(filepath));
-    TEST_ASSERT_EQUAL(ESP_OK, esp_vfs_fat_info(base_path, &total_bytes, &free_bytes_new));
-    ESP_LOGD("fatfs info", "total_bytes=%llu, free_bytes_after_delete=%llu", total_bytes, free_bytes_new);
-    TEST_ASSERT_EQUAL(free_bytes, free_bytes_new);
 }

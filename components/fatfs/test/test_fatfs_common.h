@@ -1,8 +1,16 @@
-/*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// Copyright 2015-2017 Espressif Systems (Shanghai) PTE LTD
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #pragma once
 
@@ -22,14 +30,10 @@
         } \
     } while(0)
 
-extern const char* fatfs_test_hello_str;
-extern const char* fatfs_test_hello_str_utf;
+const char* fatfs_test_hello_str;
+const char* fatfs_test_hello_str_utf;
 
 void test_fatfs_create_file_with_text(const char* name, const char* text);
-
-void test_fatfs_create_file_with_o_creat_flag(const char* filename);
-
-void test_fatfs_open_file_with_o_creat_flag(const char* filename);
 
 void test_fatfs_overwrite_append(const char* filename);
 
@@ -69,8 +73,4 @@ void test_fatfs_opendir_readdir_rewinddir(const char* dir_prefix);
 
 void test_fatfs_opendir_readdir_rewinddir_utf_8(const char* dir_prefix);
 
-void test_leading_spaces(void);
-
 void test_fatfs_rw_speed(const char* filename, void* buf, size_t buf_size, size_t file_size, bool write);
-
-void test_fatfs_info(const char* base_path, const char* filepath);
